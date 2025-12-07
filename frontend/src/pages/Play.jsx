@@ -76,6 +76,9 @@ const Play = () => {
         white: match.initialTime?.white || 0,
         black: match.initialTime?.black || 0
       });
+      
+      // Join match room to receive updates
+      socket.emit('match:join', { matchId: match._id });
     });
 
     socket.on('match:move', ({ match }) => {
@@ -140,16 +143,34 @@ const Play = () => {
   };
 
   const handleMove = (from, to) => {
-    if (!currentMatch || !user) return;
+    if (!currentMatch || !user) {
+      console.error('Cannot make move: missing match or user');
+      return;
+    }
 
-    // Determine user's color - works for both bot and regular matches
-    const isWhite = currentMatch.playerWhite && 
-      (currentMatch.playerWhite._id === user._id || currentMatch.playerWhite === user._id);
-    const isBlack = currentMatch.playerBlack && 
-      (currentMatch.playerBlack._id === user._id || currentMatch.playerBlack === user._id);
+    // Determine user's color - for bot matches, use botPlayer to infer user color
+    let isWhite = false;
+    
+    if (currentMatch.isBotMatch) {
+      // Bot match logic:
+      // - If bot plays 'black', user plays 'white'
+      // - If bot plays 'white', user plays 'black'
+      if (currentMatch.botPlayer === 'black') {
+        isWhite = true; // User is white, bot is black
+      } else if (currentMatch.botPlayer === 'white') {
+        isWhite = false; // User is black, bot is white
+      }
+    } else {
+      // Regular match - check which player matches user ID
+      const isUserIdMatch = (player, userId) => {
+        if (!player) return false;
+        const playerId = typeof player === 'object' && player._id ? player._id : player;
+        return playerId?.toString() === userId.toString();
+      };
+      isWhite = isUserIdMatch(currentMatch.playerWhite, user._id);
+    }
 
-    if (!isWhite && !isBlack) return;
-
+    console.log('Making move:', { from, to, matchId: currentMatch._id, userId: user._id, isWhite });
     socket.emit('match:move', {
       matchId: currentMatch._id,
       userId: user._id,
@@ -160,11 +181,62 @@ const Play = () => {
 
   // Playing match view
   if (currentMatch && matchMode === 'playing') {
-    // Determine user's color - handle bot matches where one player might be null
-    const isWhite = currentMatch.playerWhite && 
-      (currentMatch.playerWhite._id === user._id || currentMatch.playerWhite === user._id);
+    // Determine user's color - for bot matches, use botPlayer to infer user color
+    let isWhite = false;
+    
+    if (currentMatch.isBotMatch) {
+      // In bot matches: determine user color based on botPlayer field
+      // If bot plays 'black', user plays 'white'
+      // If bot plays 'white', user plays 'black'
+      if (currentMatch.botPlayer === 'black') {
+        isWhite = true; // User is white, bot is black
+      } else if (currentMatch.botPlayer === 'white') {
+        isWhite = false; // User is black, bot is white
+      } else {
+        // Fallback: check which player slot is not null
+        if (currentMatch.playerWhite !== null && currentMatch.playerWhite !== undefined) {
+          isWhite = true; // playerWhite exists, user is white
+        } else if (currentMatch.playerBlack !== null && currentMatch.playerBlack !== undefined) {
+          isWhite = false; // playerBlack exists, user is black
+        }
+      }
+    } else {
+      // Regular match - check which player matches user ID
+      // Helper function to compare user IDs
+      const isUserIdMatch = (player, userId) => {
+        if (!player) return false;
+        const playerId = typeof player === 'object' && player._id ? player._id : player;
+        return playerId?.toString() === userId.toString();
+      };
+      isWhite = isUserIdMatch(currentMatch.playerWhite, user._id);
+    }
+    
+    // Parse FEN to determine whose turn it is
+    const fenTurn = currentMatch.fen?.split(' ')[1]; // 'w' or 'b'
+    const isWhiteTurn = fenTurn === 'w';
+    const isMyTurn = isWhite ? isWhiteTurn : !isWhiteTurn;
+    
     const orientation = isWhite ? 'white' : 'black';
-    const isMyTurn = currentMatch.fen?.includes(' w ') ? isWhite : !isWhite;
+    
+    // Debug logging - CRITICAL for troubleshooting
+    console.log('🔍 MATCH STATE DEBUG:', {
+      isBotMatch: currentMatch.isBotMatch,
+      botPlayer: currentMatch.botPlayer,
+      playerWhite: currentMatch.playerWhite,
+      playerBlack: currentMatch.playerBlack,
+      playerWhiteType: typeof currentMatch.playerWhite,
+      playerBlackType: typeof currentMatch.playerBlack,
+      user_id: user._id,
+      isWhite,
+      orientation,
+      fen: currentMatch.fen,
+      fenTurn,
+      isWhiteTurn,
+      isMyTurn,
+      status: currentMatch.status,
+      disabled: currentMatch.status !== 'ongoing',
+      canMove: currentMatch.status === 'ongoing' && isMyTurn
+    });
 
     return (
       <Layout>
@@ -196,9 +268,20 @@ const Play = () => {
                   fen={currentMatch.fen}
                   onMove={handleMove}
                   orientation={orientation}
-                  disabled={!isMyTurn || currentMatch.status !== 'ongoing'}
+                  disabled={currentMatch.status !== 'ongoing'}
                   isPlayer={true}
+                  userColor={isWhite ? 'white' : 'black'}
                 />
+                {/* Debug info - remove in production */}
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="mt-4 p-2 bg-gray-100 text-xs">
+                    <div>Status: {currentMatch.status}</div>
+                    <div>User is White: {isWhite ? 'Yes' : 'No'}</div>
+                    <div>My Turn: {isMyTurn ? 'Yes' : 'No'}</div>
+                    <div>Disabled: {(!isMyTurn || currentMatch.status !== 'ongoing') ? 'Yes' : 'No'}</div>
+                    <div>Bot Player: {currentMatch.botPlayer}</div>
+                  </div>
+                )}
               </div>
             </div>
             <div>

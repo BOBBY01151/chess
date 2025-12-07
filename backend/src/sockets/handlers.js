@@ -39,7 +39,13 @@ export const setupSocketHandlers = (io) => {
         await MatchService.startMatch(match._id);
         startMatchClock(match._id, match.timeControl, io);
 
-        socket.emit('match:start', { match });
+        // Join match room
+        socket.join(`match:${match._id}`);
+
+        // Get updated match with 'ongoing' status
+        const updatedMatch = await MatchService.getMatch(match._id);
+        
+        socket.emit('match:start', { match: updatedMatch || match });
         io.emit('match:live', { matchId: match._id });
         
         // If user chose black, bot plays first (white moves first)
@@ -48,6 +54,9 @@ export const setupSocketHandlers = (io) => {
             BotService.checkAndPlayBotMove(match._id).then(updatedMatch => {
               if (updatedMatch) {
                 io.to(`match:${match._id}`).emit('match:move', { match: updatedMatch });
+                io.to(`match:${match._id}`).emit('match:clock:update', {
+                  remainingTime: updatedMatch.remainingTime
+                });
               }
             });
           }, 500);
@@ -135,10 +144,19 @@ export const setupSocketHandlers = (io) => {
       socket.emit('match:cancelled');
     });
 
+    // Join match room
+    socket.on('match:join', (data) => {
+      const { matchId } = data;
+      socket.join(`match:${matchId}`);
+    });
+
     // Make move
     socket.on('match:move', async (data) => {
       try {
         const { matchId, userId, from, to, promotion } = data;
+        
+        // Join room if not already joined
+        socket.join(`match:${matchId}`);
         
         const match = await MatchService.makeMove(matchId, userId, from, to, promotion);
         
@@ -176,7 +194,18 @@ export const setupSocketHandlers = (io) => {
           setTimeout(() => {
             BotService.checkAndPlayBotMove(matchId).then(updatedMatch => {
               if (updatedMatch) {
-                io.to(`match:${matchId}`).emit('match:move', { match: updatedMatch });
+                // Get updated match with populated players
+                MatchService.getMatch(matchId).then(fullMatch => {
+                  io.to(`match:${matchId}`).emit('match:move', { match: fullMatch || updatedMatch });
+                  io.to(`match:${matchId}`).emit('match:clock:update', {
+                    remainingTime: (fullMatch || updatedMatch).remainingTime
+                  });
+                }).catch(() => {
+                  io.to(`match:${matchId}`).emit('match:move', { match: updatedMatch });
+                  io.to(`match:${matchId}`).emit('match:clock:update', {
+                    remainingTime: updatedMatch.remainingTime
+                  });
+                });
                 
                 if (updatedMatch.status === 'finished') {
                   stopMatchClock(matchId);
@@ -193,8 +222,10 @@ export const setupSocketHandlers = (io) => {
                   }
                 }
               }
+            }).catch(err => {
+              console.error('Bot move failed:', err);
             });
-          }, 500);
+          }, 800);
         }
 
         // Update clocks

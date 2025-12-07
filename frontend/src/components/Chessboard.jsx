@@ -9,7 +9,7 @@ const PIECE_SYMBOLS = {
   'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
 };
 
-const Chessboard = ({ fen, onMove, orientation = 'white', disabled = false, isPlayer = true }) => {
+const Chessboard = ({ fen, onMove, orientation = 'white', disabled = false, isPlayer = true, userColor = 'white' }) => {
   const [selectedSquare, setSelectedSquare] = useState(null);
   const [game, setGame] = useState(new Chess(fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'));
 
@@ -34,39 +34,83 @@ const Chessboard = ({ fen, onMove, orientation = 'white', disabled = false, isPl
   };
 
   const handleSquareClick = (rank, file) => {
-    if (disabled || !isPlayer) return;
+    if (!isPlayer) {
+      console.log('❌ Not a player, ignoring click');
+      return;
+    }
 
     const square = getSquare(rank, file);
     const piece = game.get(square);
+    const currentTurn = game.turn();
+    const userPieceColor = userColor === 'white' ? 'w' : 'b';
+    const isMyTurn = (currentTurn === 'w' && userColor === 'white') || (currentTurn === 'b' && userColor === 'black');
+
+    // Debug logging - CRITICAL
+    console.log('🎯 SQUARE CLICKED:', {
+      square,
+      piece: piece ? { color: piece.color, type: piece.type } : null,
+      currentTurn,
+      userColor,
+      userPieceColor,
+      isMyTurn,
+      disabled,
+      selectedSquare,
+      canSelect: !disabled && isMyTurn,
+      isOwnPiece: piece && piece.color === userPieceColor
+    });
 
     if (selectedSquare) {
-      // Try to make move
-      try {
-        const move = game.move({
-          from: selectedSquare,
-          to: square,
-          promotion: 'q'
-        });
+      // Try to make move (only if it's your turn and not disabled)
+      if (isMyTurn && !disabled) {
+        try {
+          const move = game.move({
+            from: selectedSquare,
+            to: square,
+            promotion: 'q'
+          });
 
-        if (move) {
-          onMove(selectedSquare, square);
-          setSelectedSquare(null);
-          return;
+          if (move) {
+            console.log('✅ MOVE MADE:', move);
+            onMove(selectedSquare, square);
+            setSelectedSquare(null);
+            return;
+          }
+        } catch (error) {
+          console.error('❌ Invalid move:', error);
+          // Invalid move - continue to piece selection logic
         }
-      } catch (error) {
-        // Invalid move
+      } else {
+        console.log('❌ Cannot make move:', { isMyTurn, disabled });
       }
 
-      // If click on own piece, select it
-      if (piece && piece.color === game.turn()) {
+      // If click on own piece, select it (only if it's your turn and not disabled)
+      if (piece && piece.color === userPieceColor && isMyTurn && !disabled) {
+        console.log('✅ Selecting new piece:', square);
         setSelectedSquare(square);
       } else {
         setSelectedSquare(null);
       }
     } else {
-      // Select piece if it's your turn
-      if (piece && piece.color === game.turn()) {
-        setSelectedSquare(square);
+      // Select piece if it's your piece and your turn (and not disabled)
+      if (piece && piece.color === userPieceColor) {
+        if (isMyTurn && !disabled) {
+          console.log('✅ SELECTING PIECE:', square);
+          setSelectedSquare(square);
+        } else {
+          console.log('❌ Cannot select piece - blocked:', {
+            isMyTurn,
+            disabled,
+            reason: !isMyTurn ? 'Not your turn' : 'Board disabled'
+          });
+        }
+      } else {
+        if (piece) {
+          console.log('❌ Not your piece:', {
+            pieceColor: piece.color,
+            userPieceColor,
+            isOwnPiece: piece.color === userPieceColor
+          });
+        }
       }
     }
   };

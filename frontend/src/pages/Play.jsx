@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout.jsx';
 import Chessboard from '../components/Chessboard.jsx';
+import Chessboard3D from '../components/Chessboard3D.jsx';
 import Clock from '../components/Clock.jsx';
 import MoveList from '../components/MoveList.jsx';
 import useAuthStore from '../store/authStore.js';
@@ -28,6 +29,7 @@ const Play = () => {
   const [remainingTime, setRemainingTime] = useState({ white: 0, black: 0 });
   const [bots, setBots] = useState([]);
   const [loadingBots, setLoadingBots] = useState(true);
+  const [boardView, setBoardView] = useState('3d'); // '2d' or '3d' - Default to 3D
   const navigate = useNavigate();
 
   // Load bots from API when component mounts
@@ -256,6 +258,29 @@ const Play = () => {
                     <p className="text-sm text-gray-600">
                       {currentMatch.isBotMatch ? 'Bot' : (currentMatch.playerBlack?.username || 'Opponent')}
                     </p>
+                    {/* View Toggle */}
+                    <div className="flex gap-2 mt-2 justify-center">
+                      <button
+                        onClick={() => setBoardView('2d')}
+                        className={`px-3 py-1 text-xs rounded ${
+                          boardView === '2d'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        2D
+                      </button>
+                      <button
+                        onClick={() => setBoardView('3d')}
+                        className={`px-3 py-1 text-xs rounded ${
+                          boardView === '3d'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        3D
+                      </button>
+                    </div>
                   </div>
                   <Clock
                     time={remainingTime.black}
@@ -264,14 +289,25 @@ const Play = () => {
                     isLow={remainingTime.black < 10000}
                   />
                 </div>
-                <Chessboard
-                  fen={currentMatch.fen}
-                  onMove={handleMove}
-                  orientation={orientation}
-                  disabled={currentMatch.status !== 'ongoing'}
-                  isPlayer={true}
-                  userColor={isWhite ? 'white' : 'black'}
-                />
+                {boardView === '3d' ? (
+                  <Chessboard3D
+                    fen={currentMatch.fen}
+                    onMove={handleMove}
+                    orientation={orientation}
+                    disabled={currentMatch.status !== 'ongoing'}
+                    isPlayer={true}
+                    userColor={isWhite ? 'white' : 'black'}
+                  />
+                ) : (
+                  <Chessboard
+                    fen={currentMatch.fen}
+                    onMove={handleMove}
+                    orientation={orientation}
+                    disabled={currentMatch.status !== 'ongoing'}
+                    isPlayer={true}
+                    userColor={isWhite ? 'white' : 'black'}
+                  />
+                )}
                 {/* Debug info - remove in production */}
                 {process.env.NODE_ENV === 'development' && (
                   <div className="mt-4 p-2 bg-gray-100 text-xs">
